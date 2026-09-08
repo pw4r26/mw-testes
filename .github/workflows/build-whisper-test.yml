@@ -17,7 +17,7 @@ jobs:
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: latest
-      - name: Patch browser runtime for Android single-thread
+      - name: Patch browser runtime for Android single-thread quality test
         working-directory: whisper.cpp
         run: |
           python3 - <<'PY'
@@ -30,6 +30,7 @@ jobs:
           getter='''    emscripten::function("result", emscripten::optional_override([](size_t index) {\n        --index;\n        if (index >= g_results.size()) return std::string();\n        return g_results[index];\n    }));\n\n'''
           if marker not in s: raise SystemExit('Binding marker changed; stopping safely')
           s=s.replace(marker,getter+marker)
+          s=s.replace('whisper_full_default_params(whisper_sampling_strategy::WHISPER_SAMPLING_GREEDY)','whisper_full_default_params(whisper_sampling_strategy::WHISPER_SAMPLING_BEAM_SEARCH)')
           s=s.replace('params.n_threads        = std::min(nthreads, std::min(16, mpow2(std::thread::hardware_concurrency())));','params.n_threads        = 1;')
           s=s.replace('params.n_threads, std::thread::hardware_concurrency(), whisper_print_system_info());','params.n_threads, 1, whisper_print_system_info());')
           old='''        // run the worker\n        {\n            g_worker = std::thread([index, params, pcmf32 = std::move(pcmf32), is_multilingual]() {\n                whisper_reset_timings(g_contexts[index]);\n                whisper_full(g_contexts[index], params, pcmf32.data(), pcmf32.size());\n                whisper_print_timings(g_contexts[index]);\n                if (is_multilingual) {\n                    free((void*)params.language);\n                }\n            });\n        }'''
@@ -43,11 +44,11 @@ jobs:
           x=x.replace('    -s FORCE_FILESYSTEM=1 \\\n','    -s FORCE_FILESYSTEM=1 \\\n    -s ASSERTIONS=2 \\\n')
           c.write_text(x)
           PY
-      - name: Build Android single-thread runtime
+      - name: Build Android single-thread quality runtime
         working-directory: whisper.cpp
         run: |
-          emcmake cmake -S . -B build-em -DWHISPER_WASM_SINGLE_FILE=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo
-          cmake --build build-em --config RelWithDebInfo -j2
+          emcmake cmake -S . -B build-em -DWHISPER_WASM_SINGLE_FILE=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-em --config Release -j2
       - name: Publish runtime safely
         run: |
           mkdir -p /tmp/medwork-runtime
@@ -63,6 +64,6 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add vendor/whisper/libmain.js vendor/whisper/LICENSE-whisper.cpp.txt
           if ! git diff --cached --quiet; then
-            git commit -m 'Publica runtime Whisper Android single thread real'
+            git commit -m 'Publica runtime Whisper beam search para teste de qualidade'
             git push origin main
           fi
