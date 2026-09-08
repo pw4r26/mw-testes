@@ -8,6 +8,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -34,7 +35,7 @@ jobs:
           s=s.replace('params.n_threads        = std::min(nthreads, std::min(16, mpow2(std::thread::hardware_concurrency())));','params.n_threads        = 1;')
           s=s.replace('params.n_threads, std::thread::hardware_concurrency(), whisper_print_system_info());','params.n_threads, 1, whisper_print_system_info());')
           old='''        // run the worker\n        {\n            g_worker = std::thread([index, params, pcmf32 = std::move(pcmf32), is_multilingual]() {\n                whisper_reset_timings(g_contexts[index]);\n                whisper_full(g_contexts[index], params, pcmf32.data(), pcmf32.size());\n                whisper_print_timings(g_contexts[index]);\n                if (is_multilingual) {\n                    free((void*)params.language);\n                }\n            });\n        }'''
-          new='''        // run synchronously: Android browser build has no pthread worker\n        {\n            whisper_reset_timings(g_contexts[index]);\n            const int rc = whisper_full(g_contexts[index], params, pcmf32.data(), pcmf32.size());\n            g_results[index].clear();\n            if (rc == 0) {\n                const int n_segments = whisper_full_n_segments(g_contexts[index]);\n                for (int i = 0; i < n_segments; ++i) {\n                    const char * text = whisper_full_get_segment_text(g_contexts[index], i);\n                    if (text) g_results[index] += text;\n                }\n            }\n            whisper_print_timings(g_contexts[index]);\n            if (is_multilingual) {\n                free((void*)params.language);\n            }\n            if (rc != 0) return rc;\n        }'''
+          new='''        // run synchronously: Android browser build has no pthread worker\n        {\n            whisper_reset_timings(g_contexts[index]);\n            const int rc = whisper_full(g_contexts[index], params, pcmf32.data(), pcmf32.size());\n            g_results[index].clear();\n            if (rc == 0) {\n                const int n_segments = whisper_full_n_segments(g_contexts[index]);\n                for (int i = 0; i < n_segments; ++i) {\n                    const char * text = whisper_full_get_segment_text(g_contexts[index], i);\n                    if (text) g_results[index] += text;\n                }\n            }\n            whisper_print_timings(g_contexts[index]);\n            if (is_multilingual) free((void*)params.language);\n            if (rc != 0) return rc;\n        }'''
           if old not in s: raise SystemExit('Upstream worker block changed; stopping safely')
           s=s.replace(old,new)
           p.write_text(s)
@@ -46,6 +47,7 @@ jobs:
           PY
       - name: Build Android single-thread quality runtime
         working-directory: whisper.cpp
+        timeout-minutes: 15
         run: |
           emcmake cmake -S . -B build-em -DWHISPER_WASM_SINGLE_FILE=ON -DCMAKE_BUILD_TYPE=Release
           cmake --build build-em --config Release -j2
