@@ -37,12 +37,19 @@ jobs:
         run: |
           emcmake cmake -S . -B build-em -DWHISPER_WASM_SINGLE_FILE=ON
           cmake --build build-em --config Release -j2
-      - name: Publish runtime
+      - name: Publish runtime safely
         run: |
+          mkdir -p /tmp/medwork-runtime
+          cp whisper.cpp/build-em/bin/libmain.js /tmp/medwork-runtime/libmain.js
+          rm -rf whisper.cpp
+          git fetch origin main
+          git reset --hard origin/main
           mkdir -p vendor/whisper
-          cp whisper.cpp/build-em/bin/libmain.js vendor/whisper/libmain.js
+          cp /tmp/medwork-runtime/libmain.js vendor/whisper/libmain.js
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add vendor/whisper/libmain.js
-          git commit -m 'Adiciona runtime Whisper WASM ao teste publico'
-          git push
+          if ! git diff --cached --quiet; then
+            git commit -m 'Adiciona runtime Whisper WASM ao teste publico'
+            git push origin main
+          fi
