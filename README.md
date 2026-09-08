@@ -5,3 +5,5 @@ Este repositório contém somente a versão demonstrativa/PWA do MedWork para te
 **Não utilizar dados reais de pacientes ou trabalhadores.** Este ambiente público não possui os controles de segurança necessários para uso assistencial.
 
 O desenvolvimento principal permanece no repositório privado do projeto.
+
+<!-- deploy: whisper-android-diagnostic-v10 -->
