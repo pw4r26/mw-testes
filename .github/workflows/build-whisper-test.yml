@@ -17,13 +17,12 @@ jobs:
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: latest
-      - name: Patch browser runtime for Android compatibility
+      - name: Patch browser runtime for Android diagnostics
         working-directory: whisper.cpp
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p=Path('examples/whisper.wasm/emscripten.cpp'); s=p.read_text()
-          # Keep the existing asynchronous worker bridge but expose deterministic result.
           s=s.replace('std::thread g_worker;','std::thread g_worker;\n\nstd::vector<std::string> g_results(4);')
           marker='    emscripten::function("free",'
           getter='''    emscripten::function("result", emscripten::optional_override([](size_t index) {\n        if (g_worker.joinable()) g_worker.join();\n        --index;\n        if (index >= g_results.size()) return std::string();\n        return g_results[index];\n    }));\n\n'''
@@ -32,19 +31,18 @@ jobs:
           new='''                whisper_full(g_contexts[index], params, pcmf32.data(), pcmf32.size());\n                g_results[index].clear();\n                const int n_segments = whisper_full_n_segments(g_contexts[index]);\n                for (int i = 0; i < n_segments; ++i) {\n                    const char * text = whisper_full_get_segment_text(g_contexts[index], i);\n                    if (text) g_results[index] += text;\n                }\n                whisper_print_timings(g_contexts[index]);'''
           if old not in s: raise SystemExit('Upstream changed; stopping safely')
           p.write_text(s.replace(old,new))
-
-          # GitHub Pages cannot provide the COOP/COEP headers required by pthread WASM.
-          # Build this public Android validation runtime without Emscripten pthreads.
           c=Path('examples/whisper.wasm/CMakeLists.txt'); x=c.read_text()
           x=x.replace('    -s USE_PTHREADS=1 \\\n','')
           x=x.replace('    -s PTHREAD_POOL_SIZE_STRICT=0 \\\n','')
+          # Diagnostic build: expose the exact Emscripten abort instead of generic Aborted().
+          x=x.replace('    -s FORCE_FILESYSTEM=1 \\\n','    -s FORCE_FILESYSTEM=1 \\\n    -s ASSERTIONS=2 \\\n    -s SAFE_HEAP=1 \\\n    -s STACK_OVERFLOW_CHECK=2 \\\n')
           c.write_text(x)
           PY
-      - name: Build
+      - name: Build diagnostic runtime
         working-directory: whisper.cpp
         run: |
-          emcmake cmake -S . -B build-em -DWHISPER_WASM_SINGLE_FILE=ON
-          cmake --build build-em --config Release -j2
+          emcmake cmake -S . -B build-em -DWHISPER_WASM_SINGLE_FILE=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build-em --config RelWithDebInfo -j2
       - name: Publish runtime safely
         run: |
           mkdir -p /tmp/medwork-runtime
@@ -60,6 +58,6 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add vendor/whisper/libmain.js vendor/whisper/LICENSE-whisper.cpp.txt
           if ! git diff --cached --quiet; then
-            git commit -m 'Atualiza runtime Whisper compativel com teste Android'
+            git commit -m 'Publica runtime diagnostico Whisper Android'
             git push origin main
           fi
