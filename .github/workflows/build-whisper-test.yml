@@ -18,7 +18,7 @@ jobs:
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: latest
-      - name: Patch browser runtime for Android single-thread quality test
+      - name: Patch browser runtime for Android medical-context test
         working-directory: whisper.cpp
         run: |
           python3 - <<'PY'
@@ -32,7 +32,11 @@ jobs:
           if marker not in s: raise SystemExit('Binding marker changed; stopping safely')
           s=s.replace(marker,getter+marker)
           s=s.replace('whisper_full_default_params(whisper_sampling_strategy::WHISPER_SAMPLING_GREEDY)','whisper_full_default_params(whisper_sampling_strategy::WHISPER_SAMPLING_BEAM_SEARCH)')
-          s=s.replace('params.n_threads        = std::min(nthreads, std::min(16, mpow2(std::thread::hardware_concurrency())));','params.n_threads        = 1;')
+          # Context only biases decoding; it is not appended to the transcript.
+          context='''        static const char * medwork_prompt = "Consulta de saúde do trabalhador. Termos possíveis: dor, parestesia, punho, mão, ombro, coluna lombar, movimentos repetitivos, força de preensão, teste de Phalen, eletroneuromiografia, síndrome do túnel do carpo, ruído, protetor auditivo, zumbido, exposição ocupacional, jornada de trabalho, afastamento.";\n        params.initial_prompt = medwork_prompt;\n        params.carry_initial_prompt = true;\n'''
+          anchor='        params.n_threads        = std::min(nthreads, std::min(16, mpow2(std::thread::hardware_concurrency())));'
+          if anchor not in s: raise SystemExit('Parameter block changed; stopping safely')
+          s=s.replace(anchor,'        params.n_threads        = 1;\n'+context)
           s=s.replace('params.n_threads, std::thread::hardware_concurrency(), whisper_print_system_info());','params.n_threads, 1, whisper_print_system_info());')
           old='''        // run the worker\n        {\n            g_worker = std::thread([index, params, pcmf32 = std::move(pcmf32), is_multilingual]() {\n                whisper_reset_timings(g_contexts[index]);\n                whisper_full(g_contexts[index], params, pcmf32.data(), pcmf32.size());\n                whisper_print_timings(g_contexts[index]);\n                if (is_multilingual) {\n                    free((void*)params.language);\n                }\n            });\n        }'''
           new='''        // run synchronously: Android browser build has no pthread worker\n        {\n            whisper_reset_timings(g_contexts[index]);\n            const int rc = whisper_full(g_contexts[index], params, pcmf32.data(), pcmf32.size());\n            g_results[index].clear();\n            if (rc == 0) {\n                const int n_segments = whisper_full_n_segments(g_contexts[index]);\n                for (int i = 0; i < n_segments; ++i) {\n                    const char * text = whisper_full_get_segment_text(g_contexts[index], i);\n                    if (text) g_results[index] += text;\n                }\n            }\n            whisper_print_timings(g_contexts[index]);\n            if (is_multilingual) free((void*)params.language);\n            if (rc != 0) return rc;\n        }'''
@@ -45,7 +49,7 @@ jobs:
           x=x.replace('    -s FORCE_FILESYSTEM=1 \\\n','    -s FORCE_FILESYSTEM=1 \\\n    -s ASSERTIONS=2 \\\n')
           c.write_text(x)
           PY
-      - name: Build Android single-thread quality runtime
+      - name: Build Android medical-context runtime
         working-directory: whisper.cpp
         timeout-minutes: 15
         run: |
@@ -66,6 +70,6 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add vendor/whisper/libmain.js vendor/whisper/LICENSE-whisper.cpp.txt
           if ! git diff --cached --quiet; then
-            git commit -m 'Publica runtime Whisper beam search para teste de qualidade'
+            git commit -m 'Publica runtime Whisper com contexto medico ocupacional'
             git push origin main
           fi
